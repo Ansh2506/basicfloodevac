@@ -11,7 +11,7 @@ from mesa.datacollection import DataCollector
 from mesa.space import Coordinate, MultiGrid
 from mesa.time import RandomActivation
 
-from agent import Human, Wall ,EmergencyExit, Furniture, Water, Door, Tree, Bridge,Tile
+from agent import Human, Wall ,EmergencyExit, Furniture, Water, Door, Tree, Bridge,Tile, Forecaster, FirstResponder
 
 
 class FloodEvacuation(Model):
@@ -34,11 +34,12 @@ class FloodEvacuation(Model):
         self,
         floor_plan_file: str,
         human_count: int,
+        num_of_responders : int,
         collaboration_percentage: float,
         fire_probability: float,
         visualise_vision: bool,
         random_spawn: bool,
-        save_plots: bool,
+        save_plots: bool
     ):
         # Load floorplan
         # floorplan = np.genfromtxt(path.join("fire_evacuation/floorplans/", floor_plan_file))
@@ -55,6 +56,7 @@ class FloodEvacuation(Model):
         self.width = width
         self.height = height
         self.human_count = human_count
+        self.num_of_responders = num_of_responders
         self.collaboration_percentage = collaboration_percentage
         self.visualise_vision = visualise_vision
         self.fire_probability = fire_probability
@@ -65,6 +67,9 @@ class FloodEvacuation(Model):
         self.schedule = RandomActivation(self)
 
         self.grid = MultiGrid(height, width, torus=False)
+        
+        #alarm attributes
+        self.alarm = False
 
         # Used to start a fire at a random furniture location
         self.furniture: dict[Coordinate, Furniture] = {}
@@ -125,7 +130,8 @@ class FloodEvacuation(Model):
             if floor_object:
                 self.grid.place_agent(floor_object, pos)
                 self.schedule.add(floor_object)
-
+          #elevation layer will be added as space
+         #self.space.set_elevation_layer("data/elevation.asc.gz", crs="epsg:4326")
         # Create a graph of traversable routes, used by agents for pathing
         self.graph = nx.Graph()
         for agents, x, y in self.grid.coord_iter():
@@ -248,6 +254,26 @@ class FloodEvacuation(Model):
                 self.schedule.add(human)
             else:
                 print("No tile empty for human placement!")
+                
+        self.initial_risk = 0.5
+        forecaster_agent = Forecaster(
+        self.initial_risk,
+        pos,
+        self,
+        activates = False)
+        self.schedule.add(forecaster_agent)
+        
+        for i in range(0,self.num_of_responders):
+            if self.random_spawn:
+                pos = self.grid.find_empty()
+                
+            else:  # Place human agents at specified spawn locations
+                n = len(self.spawn_pos_list)
+                pos = self.spawn_pos_list[random.randint(0,n-1)]
+                
+            b = FirstResponder(False,pos, self)
+            self.schedule.add(b)
+            self.grid.place_agent(b,pos)
 
         self.running = True
 

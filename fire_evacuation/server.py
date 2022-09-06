@@ -5,7 +5,7 @@ from mesa.visualization.ModularVisualization import ModularServer
 from mesa.visualization.UserParam import UserSettableParameter
 
 from model import FloodEvacuation
-from agent import EmergencyExit, Wall, Furniture, Water, Human, Sight, Door, DeadHuman, Tree, Bridge,Tile
+from agent import EmergencyExit, Wall, Furniture, Water, Human, Sight, Door, DeadHuman, Tree, Bridge,Tile, Forecaster, FirstResponder
 
 
 # Creates a visual portrayal of our model in the browser interface
@@ -75,6 +75,16 @@ def fire_evacuation_portrayal(agent):
         portrayal["Layer"] = 1
         portrayal["scale"] = 1
 
+    elif type(agent) is Forecaster:
+        portrayal["Layer"] = 1
+        portrayal["scale"] = 1
+        
+    elif type(agent) is FirstResponder:
+        portrayal["Shape"] = "resources/hospital.png"
+        portrayal["Layer"] = 1
+        portrayal["scale"] = 1
+        
+    
     return portrayal
 
 
@@ -122,6 +132,7 @@ model_params = {
     "collaboration_percentage": UserSettableParameter(
         "slider", "Percentage Collaborating", value=60, min_value=0, max_value=100, step=10
     ),
+    "num_of_responders": UserSettableParameter("number", "Number of First Responders", value  = 4),
     "fire_probability": UserSettableParameter(
         "slider", "Probability of Flood", value=0.8, min_value=0, max_value=1, step=0.01
     ),

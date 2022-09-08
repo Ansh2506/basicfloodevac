@@ -259,7 +259,10 @@ class FloodEvacuation(Model):
         forecaster_agent = Forecaster(
         self.initial_risk,
         pos,
-        self,
+        #activates = False,
+        #pos,
+        model =self,
+        #model = self)
         activates = False)
         self.schedule.add(forecaster_agent)
         

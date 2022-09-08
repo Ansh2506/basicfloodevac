@@ -84,6 +84,7 @@ class FloorObject(Agent):
         super().__init__(rand_id,model)
         self.pos = pos
         self.traversable = traversable
+        
     def get_position(self):
         return self.pos
 
@@ -224,7 +225,7 @@ class Government(Agent):
 class Forecaster(Government):
     def __init__(self, initial_risk,
                  #activation_threshold,
-                 pos,model,activates):
+                pos,activates,model):
         super().__init__(activates,pos,model)
         
         self.initial_risk = initial_risk
@@ -236,7 +237,7 @@ class Forecaster(Government):
         
         #immediate activation
         if self.activates == True: ##and the threshold is a certain value but action isn't taken 
-            self.take_action
+            self.take_action()
         
         #delayed activation
         # if self.activates == True and random.uniform(0,1) > self.activation_threshold:
@@ -255,76 +256,44 @@ class FirstResponder(Government):
     def __init__(self,activates,pos, model):
         super().__init__(activates,pos, model)
         self.traversable = True
-        self.planned_response : tuple[Agent,Coordinate] = (None,None,)
-        self.visible_area : tuple[Coordinate, tuple[Agent]] = []
+        #self.level_of_movement = level_of_movement
+        #self.planned_response : tuple[Agent,Coordinate] = (None,None,)
+        #self.visible_area : tuple[Coordinate, tuple[Agent]] = []
         #self.planned_rescue = 
         
     def step(self):
         
         if self.model.alarm == True:
-            self.activates == True
-            self.take_action()
-            self.visible_area = self.get_visible_area()
+            self.activates = True
             
-    def get_visible_area(self) -> tuple[Coordinate, tuple[Agent]]:
-        neighborhood = self.model.grid.get_neighborhood(
-            self.pos, moore=True, include_center=True, radius=self.vision
-        )
-        visible_neighborhood = set()
-
-        # A set of already checked tiles, for avoiding repetition and thus increased efficiency
-        checked_tiles = set()
-
-        # Reverse the neighborhood so we start from the furthest locations and work our way inwards
-        for pos in reversed(neighborhood):
-            if pos not in checked_tiles:
-                blocked = False
-                try:
-                    path = get_line(self.pos, pos)
-
-                    for i, tile in enumerate(path):
-                        contents = self.model.grid.get_cell_list_contents(tile)
-                        visible_contents = []
-                        for obj in contents:
-                            if isinstance(obj, Sight):
-                                # ignore sight tiles
-                                continue
-                            elif isinstance(obj, Wall):
-                                # We hit a wall, reject rest of path and move to next
-                                blocked = True
-                                break
-                            if not isinstance(obj,Sight):
-                                visible_contents.append(obj)
-
-                        if blocked:
-                            checked_tiles.update(
-                                path[i:]
-                            )  # Add the rest of the path to checked tiles, since we now know they are not visible
-                            break
-                        else:
-                            # If a wall didn't block the way, add the visible agents at this location
-                            checked_tiles.add(
-                                tile
-                            )  # Add the tile to checked tiles so we don't check it again
-                            visible_neighborhood.add((tile, tuple(visible_contents)))
-
-                except Exception as e:
-                    print(e)
-
-        if self.model.visualise_vision:
-            self.update_sight_tiles(visible_neighborhood)
-
-        return tuple(visible_neighborhood)
+        if self.activates == True:
+            self.move()
+            #self.take_action()
+            #self.visible_area = self.get_visible_area()
+            
+    def move(self):
+        
+        possible_steps = self.model.grid.get_neighborhood(
+            self.pos, moore = True, include_center = False)
     
-    def take_action(self):
-        for location,agents in self.visible_area:
-            for agent in agents:
-                if isinstance(agent,Human):
-                    if agent.get_mobility() == Human.Mobility.INCAPACITATED:
-                        self.planned_response = (agent,
-                                                 location,)
-                        self.model.grid.move_agent()
-                        print('First responder moves to incapacitated agent')
+        new_position = random.choice(possible_steps)
+      
+        self.model.grid.move_agent(self, new_position)
+        
+    def get_position(self):
+        return super().get_position()
+            
+   
+    
+    # def take_action(self):
+    #     for location,agents in self.visible_area:
+    #         for agent in agents:
+    #             if isinstance(agent,Human):
+    #                 if agent.get_mobility() == Human.Mobility.INCAPACITATED:
+    #                     self.planned_response = (agent,
+    #                                              location,)
+    #                     self.model.grid.move_agent()
+    #                     print('First responder moves to incapacitated agent')
                         
                         
     # def move_toward_target(self):
@@ -716,13 +685,14 @@ class Human(Agent):
         neighborhood = self.model.grid.get_neighborhood(self.pos,moore=True,include_center=True,radius=1)
         flag = False 
         for cell in neighborhood:
-            cont = self.model.grid.get_cell_list_contents((cell[0],cell[1]))
+            cont = self.model.grid.get_cell_list_contents((cell[0],cell[1])) #why is it cell[0], cell[1]
             for agent in cont:
                 if isinstance(agent,Water):
                     flag = True
                     break
         if flag == True:
-            panic_score = 0.9
+            #panic_score = 0.9
+            panic_score = self.PANIC_THRESHOLD
             return panic_score
         
 
@@ -1274,10 +1244,11 @@ class Human(Agent):
             elif self.mobility == Human.Mobility.PANIC:  # Panic
                 panic_score = self.get_panic_score()
 
-                if panic_score > 0.9 and np.random.random() < panic_score:
+                if panic_score >= 0.9: #and np.random.random() < panic_score:
                     # If they have above 90% panic score, test the score to see if they faint
                     print("Agent fainted!")
                     self.incapacitate()
+                    print("agent is incapacitated")
                     return
                 # if (
                 #     np.random.random() < panic_score

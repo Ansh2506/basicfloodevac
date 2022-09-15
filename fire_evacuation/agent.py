@@ -253,13 +253,245 @@ class Forecaster(Government):
                     
 class FirstResponder(Government):
     
-    def __init__(self,activates,pos, model):
+    def __init__(self,vision,activates,pos, model):
         super().__init__(activates,pos, model)
         self.traversable = True
+        self.vision = vision
         #self.level_of_movement = level_of_movement
-        #self.planned_response : tuple[Agent,Coordinate] = (None,None,)
+        self.planned_target : tuple[Agent,Coordinate] = (None,None,)
         #self.visible_area : tuple[Coordinate, tuple[Agent]] = []
         #self.planned_rescue = 
+        
+        self.visible_tiles : tuple[Coordinate, tuple[Agent]] = []    #Think how this will play out in water context
+
+        self.known_tiles: dict[Coordinate, set[Agent]] = {}
+
+        self.visited_tiles: set[Coordinate] = {self.pos}
+        
+    def update_sight_tiles(self, visible_neighborhood):
+        if len(self.visible_tiles) > 0:
+            # Remove old vision tiles
+            for pos, _ in self.visible_tiles:
+                contents = self.model.grid.get_cell_list_contents(pos)
+                for agent in contents:
+                    if isinstance(agent, Sight):
+                        self.model.grid.remove_agent(agent)
+                        print("sight removed")
+
+        # Add new vision tiles
+        for contents, tile in visible_neighborhood:
+            # Don't place if the tile has contents but the agent can't see it
+            if self.model.grid.is_cell_empty(tile) or len(contents) > 0:
+                sight_object = Sight(tile, self.model)
+                self.model.grid.place_agent(sight_object, tile)
+
+    # A strange implementation of ray-casting, using Bresenham's Line Algorithm, which takes into account smoke and visibility of objects
+    
+    def get_visible_tiles(self) -> tuple[Coordinate, tuple[Agent]]:
+        neighborhood = self.model.grid.get_neighborhood(
+            self.pos, moore=True, include_center=True, radius=self.vision
+        )
+        visible_neighborhood = set()
+
+        # A set of already checked tiles, for avoiding repetition and thus increased efficiency
+        checked_tiles = set()
+
+        # Reverse the neighborhood so we start from the furthest locations and work our way inwards
+        for pos in reversed(neighborhood):
+            if pos not in checked_tiles:
+                blocked = False
+                try:
+                    path = get_line(self.pos, pos)
+
+                    for i, tile in enumerate(path):
+                        contents = self.model.grid.get_cell_list_contents(tile)
+                        visible_contents = []
+                        for obj in contents:
+                            if isinstance(obj, Sight):
+                                # ignore sight tiles
+                                continue
+                            elif isinstance(obj, Wall):
+                                # We hit a wall, reject rest of path and move to next
+                                blocked = True
+                                break
+                            if not isinstance(obj,Sight):
+                                visible_contents.append(obj)
+
+                        if blocked:
+                            checked_tiles.update(
+                                path[i:]
+                            )  # Add the rest of the path to checked tiles, since we now know they are not visible
+                            break
+                        else:
+                            # If a wall didn't block the way, add the visible agents at this location
+                            checked_tiles.add(
+                                tile
+                            )  # Add the tile to checked tiles so we don't check it again
+                            visible_neighborhood.add((tile, tuple(visible_contents)))
+
+                except Exception as e:
+                    print(e)
+
+        if self.model.visualise_vision:
+            self.update_sight_tiles(visible_neighborhood)
+
+        return tuple(visible_neighborhood)
+    
+    def move_toward_target(self):
+        next_location: Coordinate = None
+        pruned_edges = set()
+        graph = deepcopy(self.model.graph)
+
+        self.update_target()  # Get the latest location of a target, if it still exists
+        if self.planned_action:  # And if there's an action, check if it's still possible
+            self.update_action()
+
+        while self.planned_target[1] and not next_location:
+            if self.location_is_traversable(self.planned_target[1]):
+                # Target is traversable
+                path = self.get_path(graph, self.planned_target[1])
+            else:
+                # Target is not traversable (e.g. we are going to another Human), so don't include target in the path
+                path = self.get_path(graph, self.planned_target[1], include_target=False)
+
+            if len(path) > 0:
+                next_location, next_path = self.get_next_location(path)
+
+                if next_location == self.pos:
+                    continue
+
+                if next_location == None:
+                    raise Exception("Next location can't be none")
+
+                # if self.check_retreat(next_path, next_location):
+                #     # We are retreating and therefore need to try a totally new path, so continue from the start of the loop
+                #     continue
+
+                # Test the next location to see if we can move there
+                if self.location_is_traversable(next_location):
+                    # Move normally
+                    self.previous_pos = self.pos
+                    self.model.grid.move_agent(self, next_location)
+                    self.visited_tiles.add(next_location)
+
+                    if self.carrying:
+                        agent = self.carrying
+                        if agent.get_status() == Human.Status.DEAD:
+                            # Agent is dead, so we can't carry them any more
+                            self.stop_carrying()
+                        else:
+                            # Agent is alive, so try to move them
+                            try:
+                                self.model.grid.move_agent(self.carrying, self.pos)
+                            except Exception as e:
+                                agent = self.carrying
+                                raise Exception(
+                                    f"Failed to move carried agent:\nException:{e}\nAgent: {agent}\nAgent Position: {agent.get_position()}\nSelf Agent Positon: {self.pos}"
+                                )
+
+                elif self.pos == path[-1]:
+                    # The human reached their target!
+
+                    if self.planned_action:
+                        self.perform_action()
+
+                    self.planned_target = (None, None)
+                    self.planned_action = None
+                    break
+
+                else:
+                    # We want to move here but it's blocked
+
+                    # check if the location is blocked due to a Human agent
+                    pushed = False
+                    contents = self.model.grid.get_cell_list_contents(next_location)
+                    for agent in contents:
+                        # Test the panic value to see if this agent "pushes" the blocking agent aside
+                        if (
+                            isinstance(agent, Human)
+                            and agent.mobility != Human.Mobility.INCAPACITATED
+                        ) and (
+                            (
+                                self.get_panic_score() >= self.PANIC_THRESHOLD
+                                and self.mobility == Human.Mobility.NORMAL
+                            )
+                            or self.mobility == Human.Mobility.PANIC
+                        ):
+                            # push the agent and then move to the next_location
+                            self.push_human_agent(agent)
+                            self.previous_pos = self.pos
+                            self.model.grid.move_agent(self, next_location)
+                            self.visited_tiles.add(next_location)
+                            pushed = True
+                            break
+                    if pushed:
+                        continue
+
+                    # Remove the next location from the temporary graph so we can try pathing again without it
+                    edges = graph.edges(next_location)
+                    pruned_edges.update(edges)
+                    graph.remove_node(next_location)
+
+                    # Reset planned_target if the next location was the end of the path
+                    if next_location == path[-1]:
+                        next_location = None
+                        self.planned_target = (None, None)
+                        self.planned_action = None
+                        break
+                    else:
+                        next_location = None
+
+            else:  # No path is possible, so drop the target
+                self.planned_target = (None, None)
+                self.planned_action = None
+                break
+
+        if len(pruned_edges) > 0:
+            # Add back the edges we removed when removing any non-traversable nodes from the global graph, because they may be traversable again next step
+            graph.add_edges_from(list(pruned_edges))
+
+   
+    def check_for_incapacitation(self) :
+        
+        num_incap = 0
+        coord = []
+        
+        for _, agents in self.visible_tiles:
+            for agent in agents:
+                if isinstance(agent, Human) and agent.get_mobility() == Human.Mobility.INCAPACITATED:
+                    print('agent is incap')
+                    num_incap += 1
+                    x = agent.get_position()
+                    coord.append(x)
+                    print("this is the incap agents location", coord)
+                    
+        #if len(coord) == 1:
+            
+            
+        return coord, num_incap
+    
+    # def move_towards_incap_agent(self,location):
+        
+    #     x = self.check_for_incapacitation()
+        
+    #     path = get_line(self.pos, x)
+        
+        # incap_num = 0
+        # possible_area = self.model.grid.get_neighborhood(
+        #     self.pos, moore = True, include_center = False)
+        
+        # for cell in possible_area:
+        #     #contents = self.model.grid.get_cell_list_contents(next_location)
+        
+        #     cont = self.model.grid.get_cell_list_contents((cell[0],cell[1])) #x and y coordinates of the neighbouring cells, get contents of neighbouring cells
+            
+        #     for agent in cont:
+        #         if isinstance(agent,Human) and agent.get_mobility() == Human.Mobility.INCAPACITATED:
+        #             print('Found in cap Agent') 
+        #             incap_num += 1
+                
+        
+        
         
     def step(self):
         
@@ -268,8 +500,10 @@ class FirstResponder(Government):
             
         if self.activates == True:
             self.move()
+            self.check_for_incapacitation()
             #self.take_action()
             #self.visible_area = self.get_visible_area()
+        self.visible_tiles = self.get_visible_tiles()
             
     def move(self):
         
@@ -282,158 +516,25 @@ class FirstResponder(Government):
         
     def get_position(self):
         return super().get_position()
+    
+    
+                       
+                       
             
    
     
-    # def take_action(self):
-    #     for location,agents in self.visible_area:
-    #         for agent in agents:
-    #             if isinstance(agent,Human):
-    #                 if agent.get_mobility() == Human.Mobility.INCAPACITATED:
-    #                     self.planned_response = (agent,
-    #                                              location,)
-    #                     self.model.grid.move_agent()
-    #                     print('First responder moves to incapacitated agent')
+    def take_action(self):
+        neighbourhood_area = self.model.grid.get_neighborhood(self.pos,moore=True,include_center=False,radius=1)
+                
+        for cell in neighbourhood_area:
+            contents = self.model.grid.get_cell_list_contents((cell[0], cell[1]))
+            for agent in contents:
+                if isinstance(agent,Human):
+                    if agent.get_mobility() == Human.Mobility.INCAPACITATED:
+                        path = get_line(self.pos, (cell[0], cell[1]))
+                        self.model.grid.move_agent(self, path)
                         
-                        
-    # def move_toward_target(self):
-    #     next_location: Coordinate = None
-    #     pruned_edges = set()
-    #     graph = deepcopy(self.model.graph)
-
-    #     self.update_target()  # Get the latest location of a target, if it still exists
-    #     if self.planned_action:  # And if there's an action, check if it's still possible
-    #         self.update_action()
-
-    #     while self.planned_target[1] and not next_location:
-    #         if self.location_is_traversable(self.planned_target[1]):
-    #             # Target is traversable
-    #             path = self.get_path(graph, self.planned_target[1])
-    #         else:
-    #             # Target is not traversable (e.g. we are going to another Human), so don't include target in the path
-    #             path = self.get_path(graph, self.planned_target[1], include_target=False)
-
-    #         if len(path) > 0:
-    #             next_location, next_path = self.get_next_location(path)
-
-    #             if next_location == self.pos:
-    #                 continue
-
-    #             if next_location == None:
-    #                 raise Exception("Next location can't be none")
-
-    #             # if self.check_retreat(next_path, next_location):
-    #             #     # We are retreating and therefore need to try a totally new path, so continue from the start of the loop
-    #             #     continue
-
-    #             # Test the next location to see if we can move there
-    #             if self.location_is_traversable(next_location):
-    #                 # Move normally
-    #                 self.previous_pos = self.pos
-    #                 self.model.grid.move_agent(self, next_location)
-    #                 self.visited_tiles.add(next_location)
-
-    #                 if self.carrying:
-    #                     agent = self.carrying
-    #                     if agent.get_status() == Human.Status.DEAD:
-    #                         # Agent is dead, so we can't carry them any more
-    #                         self.stop_carrying()
-    #                     else:
-    #                         # Agent is alive, so try to move them
-    #                         try:
-    #                             self.model.grid.move_agent(self.carrying, self.pos)
-    #                         except Exception as e:
-    #                             agent = self.carrying
-    #                             raise Exception(
-    #                                 f"Failed to move carried agent:\nException:{e}\nAgent: {agent}\nAgent Position: {agent.get_position()}\nSelf Agent Positon: {self.pos}"
-    #                             )
-
-    #             elif self.pos == path[-1]:
-    #                 # The human reached their target!
-
-    #                 if self.planned_action:
-    #                     self.perform_action()
-
-    #                 self.planned_target = (None, None)
-    #                 self.planned_action = None
-    #                 break
-
-    #             else:
-    #                 # We want to move here but it's blocked
-
-    #                 # check if the location is blocked due to a Human agent
-    #                 pushed = False
-    #                 contents = self.model.grid.get_cell_list_contents(next_location)
-    #                 for agent in contents:
-    #                     # Test the panic value to see if this agent "pushes" the blocking agent aside
-    #                     if (
-    #                         isinstance(agent, Human)
-    #                         and agent.mobility != Human.Mobility.INCAPACITATED
-    #                     ) and (
-    #                         (
-    #                             self.get_panic_score() >= self.PANIC_THRESHOLD
-    #                             and self.mobility == Human.Mobility.NORMAL
-    #                         )
-    #                         or self.mobility == Human.Mobility.PANIC
-    #                     ):
-    #                         # push the agent and then move to the next_location
-    #                         self.push_human_agent(agent)
-    #                         self.previous_pos = self.pos
-    #                         self.model.grid.move_agent(self, next_location)
-    #                         self.visited_tiles.add(next_location)
-    #                         pushed = True
-    #                         break
-    #                 if pushed:
-    #                     continue
-
-    #                 # Remove the next location from the temporary graph so we can try pathing again without it
-    #                 edges = graph.edges(next_location)
-    #                 pruned_edges.update(edges)
-    #                 graph.remove_node(next_location)
-
-    #                 # Reset planned_target if the next location was the end of the path
-    #                 if next_location == path[-1]:
-    #                     next_location = None
-    #                     self.planned_target = (None, None)
-    #                     self.planned_action = None
-    #                     break
-    #                 else:
-    #                     next_location = None
-
-    #         else:  # No path is possible, so drop the target
-    #             self.planned_target = (None, None)
-    #             self.planned_action = None
-    #             break
-
-    #     if len(pruned_edges) > 0:
-    #         # Add back the edges we removed when removing any non-traversable nodes from the global graph, because they may be traversable again next step
-    #         graph.add_edges_from(list(pruned_edges))
-    # def PHYSICAL_SUPPORT(self):
-        
-    #     for agents in self.visible_tiles:
-    #         for agent in agents:
-    #              if isinstance(agent, Human):
-    #                  if agent.get_mobility() == Human.Mobility.INCAPACITATED:
-    #                      # If the agent is incapacitated, help them
-    #                      # Physical collaboration
-    #                      # Plan to move toward the target
-    #                      self.planned_target = (
-    #                          agent,
-    #                          location,
-    #                      )
-    #                      # Plan to carry the agent
-    #                      self.planned_action = Human.Action.PHYSICAL_SUPPORT
-    #                      print(f"Agent {self.unique_id} planned physical collaboration at", location)
-    #                      break
-                    
-                   
-     # self.planned_target: tuple[Agent,Coordinate] = (
-     #     None,
-     #     None,
-     # )                   
-                    #check if agent is incapacitated
-        #inform xx number of people
-
+   
 
 class Human(Agent):
     """
@@ -463,7 +564,7 @@ class Human(Agent):
 
 
     MIN_HEALTH = 0.0
-    MAX_HEALTH = 7.0
+    MAX_HEALTH = 5.0
 
     MIN_EXPERIENCE = 1
     MAX_EXPERIENCE = 10
@@ -542,7 +643,7 @@ class Human(Agent):
 
         self.planned_action: Human.Action = None
 
-        self.visible_tiles: tuple[Coordinate, tuple[Agent]] = []    #Think how this will play out in water context
+        self.visible_tiles : tuple[Coordinate, tuple[Agent]] = []    #Think how this will play out in water context
 
         self.known_tiles: dict[Coordinate, set[Agent]] = {}
 
@@ -557,6 +658,7 @@ class Human(Agent):
                 for agent in contents:
                     if isinstance(agent, Sight):
                         self.model.grid.remove_agent(agent)
+                        print("sight removed")
 
         # Add new vision tiles
         for contents, tile in visible_neighborhood:
@@ -565,7 +667,8 @@ class Human(Agent):
                 sight_object = Sight(tile, self.model)
                 self.model.grid.place_agent(sight_object, tile)
 
-    # A strange implementation of ray-casting, using Bresenham's Line Algorithm, which takes into account smoke and visibility of objects
+    # A strange implementation of ray-casting, using Bresenham's Line Algorithm, which takes into account 
+    #smoke and visibility of objects
     
     def get_visible_tiles(self) -> tuple[Coordinate, tuple[Agent]]:
         neighborhood = self.model.grid.get_neighborhood(
@@ -619,7 +722,7 @@ class Human(Agent):
 
 
     def get_random_target(self, allow_visited=True):
-        graph_nodes = self.model.graph.nodes()
+        graph_nodes = self.model.graph.nodes() #perform set like operations, finds shortest path 
 
         known_pos = set(self.known_tiles.keys())
 
@@ -659,7 +762,7 @@ class Human(Agent):
                         self.planned_target = (exit, exit_pos)
 
             else:
-                self.planned_target = emergency_exits.pop()
+                self.planned_target = emergency_exits.pop() #removes item at a given index
 
             print(f"Agent {self.unique_id} found an emergency exit.", self.planned_target)
         else:  # If there's a flood and no emergency-exit in sight, try to head for an unvisited door, if no door in sight, move randomly (for now)
@@ -685,18 +788,18 @@ class Human(Agent):
         neighborhood = self.model.grid.get_neighborhood(self.pos,moore=True,include_center=True,radius=1)
         flag = False 
         for cell in neighborhood:
-            cont = self.model.grid.get_cell_list_contents((cell[0],cell[1])) #why is it cell[0], cell[1]
+            cont = self.model.grid.get_cell_list_contents((cell[0],cell[1])) #for x,y coordinates
             for agent in cont:
                 if isinstance(agent,Water):
                     flag = True
                     break
         if flag == True:
             #panic_score = 0.9
-            panic_score = self.PANIC_THRESHOLD
+            panic_score = 0.9
             return panic_score
         
 
-        health_component = 1 / np.exp(self.health / (self.nervousness*self.MAX_HEALTH))
+        health_component = 1 / np.exp(self.health / (self.nervousness))
         experience_component = 1 / np.exp(self.experience / self.nervousness)
 
         # Calculate the mean of the components
@@ -711,6 +814,7 @@ class Human(Agent):
         self.stop_carrying()
         self.mobility = Human.Mobility.INCAPACITATED
         self.traversable = True
+        print(self.panic_score, self.health, self.nervousness, self.experience)
 
     def die(self):
         # Store the agent's position of death so we can remove them and place a DeadHuman
@@ -1214,6 +1318,9 @@ class Human(Agent):
             graph.add_edges_from(list(pruned_edges))
 
     def step(self):
+        
+        print("Hi, I am agent " + str(self.unique_id) + ".")
+
         if not self.escaped and self.pos:
             self.health_mobility_rules()
 

@@ -274,7 +274,7 @@ class FloodEvacuation(Model):
                 n = len(self.spawn_pos_list)
                 pos = self.spawn_pos_list[random.randint(0,n-1)]
                 
-            b = FirstResponder(False,pos, self)
+            b = FirstResponder(vision,False,pos, self)
             self.schedule.add(b)
             self.grid.place_agent(b,pos)
 

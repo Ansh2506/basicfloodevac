@@ -124,7 +124,8 @@ class FloodEvacuation(Model):
                 self.grid.place_agent(floor_object2,pos)
                 self.schedule.add(floor_object2)
             elif value == "_":
-                num = random.randint(0,6)
+                #num = random.randint(0,6)
+                num = 0
                 floor_object = Tile(pos,num,self)
 
             if floor_object:

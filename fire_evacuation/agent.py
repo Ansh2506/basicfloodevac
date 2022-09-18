@@ -459,7 +459,7 @@ class FirstResponder(Government):
         for _, agents in self.visible_tiles:
             for agent in agents:
                 if isinstance(agent, Human) and agent.get_mobility() == Human.Mobility.INCAPACITATED:
-                    print('agent is incap')
+                    print(f'agent {agent.unique_id} is incap with panic score {agent.get_panic_score()}, health {agent.health}')
                     num_incap += 1
                     x = agent.get_position()
                     coord.append(x)
@@ -586,7 +586,7 @@ class Human(Agent):
     # The value the panic score must reach for an agent to start panic behaviour
     PANIC_THRESHOLD = 0.9             #modifying the panic threshold to 0.9
 
-    HEALTH_MODIFIER_WATER = 0.2
+    HEALTH_MODIFIER_WATER = 0.5
 
     SPEED_MODIFIER_WATER = 0.3  #Think about this, depending on elevation diff speed modifiers
 
@@ -785,27 +785,27 @@ class Human(Agent):
 
     def get_panic_score(self):
         # adding a new component to panic, if there is water around person he will definitely panic
-        neighborhood = self.model.grid.get_neighborhood(self.pos,moore=True,include_center=True,radius=1)
-        flag = False 
-        for cell in neighborhood:
-            cont = self.model.grid.get_cell_list_contents((cell[0],cell[1])) #for x,y coordinates
-            for agent in cont:
-                if isinstance(agent,Water):
-                    flag = True
-                    break
-        if flag == True:
-            #panic_score = 0.9
-            panic_score = 0.9
-            return panic_score
+        # neighborhood = self.model.grid.get_neighborhood(self.pos,moore=True,include_center=True,radius=1)
+        # flag = False 
+        # for cell in neighborhood:
+        #     cont = self.model.grid.get_cell_list_contents((cell[0],cell[1])) #for x,y coordinates
+        #     for agent in cont:
+        #         if isinstance(agent,Water):
+        #             flag = True
+        #             break
+        # if flag == True:
+        #     #panic_score = 0.9
+        #     panic_score = 0.9
+        #     return panic_score
         
 
-        health_component = 1 / np.exp(self.health / (self.nervousness))
+        health_component = 1.50 / np.exp(self.health / (self.nervousness))
         experience_component = 1 / np.exp(self.experience / self.nervousness)
 
         # Calculate the mean of the components
         panic_score = (health_component + experience_component + self.shock) / 3
 
-        print("Panic score:", panic_score, "Health Score:", health_component, "Experience Score:", experience_component, "Shock score:", self.shock)
+        #print("Panic score:", panic_score, "Health Score:", health_component, "Experience Score:", experience_component, "Shock score:", self.shock)
 
         return panic_score
 
@@ -814,7 +814,7 @@ class Human(Agent):
         self.stop_carrying()
         self.mobility = Human.Mobility.INCAPACITATED
         self.traversable = True
-        print(self.panic_score, self.health, self.nervousness, self.experience)
+        print(self.get_panic_score(), self.health, self.nervousness, self.experience)
 
     def die(self):
         # Store the agent's position of death so we can remove them and place a DeadHuman
@@ -1319,7 +1319,7 @@ class Human(Agent):
 
     def step(self):
         
-        print("Hi, I am agent " + str(self.unique_id) + ".")
+        #print("Hi, I am agent " + str(self.unique_id) + ".")
 
         if not self.escaped and self.pos:
             self.health_mobility_rules()

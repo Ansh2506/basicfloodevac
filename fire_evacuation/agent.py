@@ -455,6 +455,7 @@ class FirstResponder(Government):
         
         num_incap = 0
         coord = []
+        self.planned_target = (None, None)
         
         for _, agents in self.visible_tiles:
             for agent in agents:
@@ -465,7 +466,38 @@ class FirstResponder(Government):
                     coord.append(x)
                     print("this is the incap agents location", coord)
                     
-        #if len(coord) == 1:
+        return coord, num_incap
+    
+    def attempt_rescue_plan(self):
+        
+        coord, num_incap = self.check_for_incapacitation()
+        self.planned_target = (None,None)
+        incap_agents = set()
+                    
+        if len(coord) == 1:
+            self.planned_target[0] = coord #since it is a tuple, should be 1, and not 0 ?
+            
+        elif len(coord) > 1:
+            idx = 0
+            Distance = 10000
+            curr = self.planned_target[0]
+            
+            for cell in self.planned_target:
+                x = cell[0]
+                y = cell[1]
+                
+                Diff = abs(self.pos[0] - x) + abs(self.pos[1] - y)
+                
+                if Diff < Distance:
+                    curr = cell
+                    Distance = Diff
+                    
+                New_pos = (curr[0], curr[1])
+                planned_target = New_pos
+                idx = planned_target.index(New_pos)
+                planned_target[idx] = planned_target[0]
+                planned_target[0] = New_pos
+                    
             
             
         return coord, num_incap
@@ -498,12 +530,16 @@ class FirstResponder(Government):
         if self.model.alarm == True:
             self.activates = True
             
+        self.visible_tiles = self.get_visible_tiles()
+        self.learn_environment()
+            
         if self.activates == True:
             self.move()
             self.check_for_incapacitation()
+            self.attempt_rescue_plan()
             #self.take_action()
             #self.visible_area = self.get_visible_area()
-        self.visible_tiles = self.get_visible_tiles()
+        
             
     def move(self):
         

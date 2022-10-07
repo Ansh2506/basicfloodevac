@@ -258,15 +258,16 @@ class FirstResponder(Government):
         self.traversable = True
         self.vision = vision
         #self.level_of_movement = level_of_movement
-        self.planned_target : tuple[Agent,Coordinate] = (None,None,)
-        #self.visible_area : tuple[Coordinate, tuple[Agent]] = []
-        #self.planned_rescue = 
+        #self.planned_target : tuple[Agent,Coordinate] = (None,None,)
+        self.planned_target = []
         
         self.visible_tiles : tuple[Coordinate, tuple[Agent]] = []    #Think how this will play out in water context
 
         self.known_tiles: dict[Coordinate, set[Agent]] = {}
 
         self.visited_tiles: set[Coordinate] = {self.pos}
+
+        self.knowledge = 0 
         
     def update_sight_tiles(self, visible_neighborhood):
         if len(self.visible_tiles) > 0:
@@ -473,8 +474,10 @@ class FirstResponder(Government):
         coord, num_incap = self.check_for_incapacitation()
         self.planned_target = (None,None)
         incap_agents = set()
-                    
-        if len(coord) == 1:
+
+        #targets = list(self.planned_target)
+
+        if len(self.planned_target) == 1:
             self.planned_target[0] = coord #since it is a tuple, should be 1, and not 0 ?
             
         elif len(coord) > 1:
@@ -523,6 +526,19 @@ class FirstResponder(Government):
         #             incap_num += 1
                 
         
+    def learn_environment(self):
+        if self.knowledge < 1:  # If there is still something to learn
+            new_tiles = 0
+
+            for pos, agents in self.visible_tiles:
+                if pos not in self.known_tiles.keys():
+                    new_tiles += 1
+                self.known_tiles[pos] = set(agents)
+
+            # update the knowledge Attribute accordingly
+            total_tiles = self.model.grid.width * self.model.grid.height
+            new_knowledge_percentage = new_tiles / total_tiles
+            self.knowledge = self.knowledge + new_knowledge_percentage
         
         
     def step(self):
@@ -554,10 +570,6 @@ class FirstResponder(Government):
         return super().get_position()
     
     
-                       
-                       
-            
-   
     
     def take_action(self):
         neighbourhood_area = self.model.grid.get_neighborhood(self.pos,moore=True,include_center=False,radius=1)
@@ -941,32 +953,6 @@ class Human(Agent):
             self.knowledge = self.knowledge + new_knowledge_percentage
             # print("Current knowledge:", self.knowledge)
 
-    # def get_collaboration_cost(self):
-    #     panic_score = self.get_panic_score()
-    #     total_count = (
-    #         self.verbal_collaboration_count
-    #         + self.morale_collaboration_count
-    #         + self.physical_collaboration_count
-    #     )
-
-    #     collaboration_component = 1 / np.exp(
-    #         1 / (total_count + 1)
-    #     )  # The more time this agent has collaborated, the higher the score will become
-    #     collaboration_cost = (collaboration_component + panic_score) / 2
-    #     # print("Collaboration cost:", collaboration_cost, "Component:", collaboration_component, "Panic component:", panic_score)
-
-    #     return collaboration_cost
-
-    # def test_collaboration(self) -> bool:
-    #     collaboration_cost = self.get_collaboration_cost()
-
-    #     rand = np.random.random()
-    #     # Collaboration if rand is GREATER than our collaboration_cost (Higher collaboration_cost means less likely to collaborate)
-    #     if rand > collaboration_cost:
-    #         return True
-    #     else:
-    #         return False
-
     def verbal_collaboration(self, target_agent: Self, target_location: Coordinate):
         success = False
         for _, agents in self.visible_tiles:
@@ -1098,52 +1084,6 @@ class Human(Agent):
 
         return True
 
-
-
-    # def get_retreat_location(self, next_location) -> Coordinate:
-    #     x, y = self.pos
-    #     next_x, next_y = next_location
-    #     diff_x = x - next_x
-    #     diff_y = y - next_y
-
-    #     retreat_location = (sum([x, diff_x]), sum([y, diff_y]))
-    #     return retreat_location
-
-    # def check_retreat(self, next_path, next_location) -> bool:
-    #     # Get the contents of any visible locations in the next path
-    #     visible_path = []
-    #     for visible_pos, _ in self.visible_tiles:
-    #         if visible_pos in next_path:
-    #             visible_path.append(visible_pos)
-
-    #     visible_contents = self.model.grid.get_cell_list_contents(visible_path)
-    #     for agent in visible_contents:
-    #         if (isinstance(agent, Smoke) and not self.planned_action) or isinstance(agent, Fire):
-    #             # There's a danger in the visible path, so try and retreat in the opposite direction
-    #             # Retreat if there's fire, or smoke (and no collaboration attempt)
-    #             retreat_location = self.get_retreat_location(next_location)
-
-    #             # Check if retreat location is out of bounds
-    #             if not self.model.grid.out_of_bounds(retreat_location):
-    #                 # Check if the retreat location is also smoke, if so, we are surrounded by smoke, so move randomly
-    #                 contents = self.model.grid.get_cell_list_contents(retreat_location)
-    #                 for agent in contents:
-    #                     if isinstance(agent, Smoke) or isinstance(agent, Fire):
-    #                         self.get_random_target()
-    #                         print("Agent surrounded by smoke and moving randomly")
-    #                         retreat_location = None
-    #                         break
-
-    #                 if retreat_location:
-    #                     print("Agent retreating opposite to fire/smoke")
-    #                     self.planned_target = (None, retreat_location)
-    #             else:
-    #                 self.get_random_target()  # Since our retreat is out of bounds, just go to a random location
-
-    #             self.planned_action = Human.Action.RETREAT
-    #             return True
-
-    #     return False
 
     def update_target(self):
         # If there was a target agent, check if target has moved or still exists

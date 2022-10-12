@@ -18,8 +18,8 @@ class FloodEvacuation(Model):
     MIN_HEALTH = 4
     MAX_HEALTH = 7
 
-    MIN_SPEED = 1
-    MAX_SPEED = 8
+    MIN_SPEED = 0.0
+    MAX_SPEED = 8.0
 
     MIN_NERVOUSNESS = 1
     MAX_NERVOUSNESS = 10
@@ -194,7 +194,7 @@ class FloodEvacuation(Model):
                 #health = np.random.randint(self.MIN_HEALTH * 100, self.MAX_HEALTH * 100) / 100
                 health = np.random.randint(self.MIN_HEALTH,self.MAX_HEALTH)
                 speed = np.random.randint(self.MIN_SPEED, self.MAX_SPEED)
-                # speed = self.MAX_SPEED
+                #speed = self.MIN_SPEED
 
                 if number_collaborators > 0:
                     collaborates = True

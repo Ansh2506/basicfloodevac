@@ -126,7 +126,7 @@ floor_plans = [
 # Specify the parameters changeable by the user, in the web interface
 model_params = {
     "floor_plan_file": UserSettableParameter(
-        "choice", "Floorplan", value=floor_plans[2], choices=floor_plans
+        "choice", "Floorplan", value=floor_plans[4], choices=floor_plans
     ),
     "human_count": UserSettableParameter("number", "Number Of Human Agents", value=25),
     "collaboration_percentage": UserSettableParameter(

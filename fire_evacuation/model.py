@@ -5,13 +5,14 @@ import networkx as nx
 import matplotlib.pyplot as plt
 import time
 import random
+from datetime import datetime, timedelta
 
 from mesa import Model
 from mesa.datacollection import DataCollector
 from mesa.space import Coordinate, MultiGrid
 from mesa.time import RandomActivation
 
-from agent import Human, Wall ,EmergencyExit, Furniture, Water, Door, Tree, Bridge,Tile, Forecaster, FirstResponder
+from agent import Human, Wall ,EmergencyExit, Furniture, Water, Door, Tree, Bridge,Tile, Highway, Path, AgricultureField,Forecaster, FirstResponder
 
 
 class FloodEvacuation(Model):
@@ -65,6 +66,9 @@ class FloodEvacuation(Model):
 
         # Set up model objects
         self.schedule = RandomActivation(self)
+        
+        self.start_time = datetime(2022, 10, 17, 0, 0, 0)
+        self.timestep_length = timedelta(minutes=30, hours=0)
 
         self.grid = MultiGrid(height, width, torus=False)
         
@@ -75,6 +79,9 @@ class FloodEvacuation(Model):
         self.furniture: dict[Coordinate, Furniture] = {}
         self.trees: dict[Coordinate, Tree] = {}
         self.bridges: dict[Coordinate, Bridge] = {}
+        self.highway : dict[Coordinate, Highway] = {}
+        self.path : dict[Coordinate, Path] = {}
+        self.agriculture_field : dict[Coordinate, AgricultureField] = {}
 
         # Used to easily see if a location is a FireExit or Door, since this needs to be done a lot
         self.fire_exits: dict[Coordinate, EmergencyExit] = {}
@@ -111,6 +118,15 @@ class FloodEvacuation(Model):
             elif value == "b": 
                 floor_object = Bridge(pos, self)
                 self.bridges[pos] = floor_object
+            elif value == "H":
+                floor_object = Highway(pos, self)
+                self.highway[pos] = floor_object
+            elif value == "P":
+                floor_object = Path(pos, self)
+                self.path[pos] = floor_object
+            elif value == "A":
+                floor_object = AgricultureField(pos, self)
+                self.agriculture_field[pos] = floor_object
             elif value == "D":
                 floor_object = Door(pos, self)
                 self.doors[pos] = floor_object
@@ -123,6 +139,7 @@ class FloodEvacuation(Model):
                 floor_object2 = Tile(pos,6,self)
                 self.grid.place_agent(floor_object2,pos)
                 self.schedule.add(floor_object2)
+            
             elif value == "_":
                 #num = random.randint(0,6)
                 num = 0
@@ -131,6 +148,8 @@ class FloodEvacuation(Model):
             if floor_object:
                 self.grid.place_agent(floor_object, pos)
                 self.schedule.add(floor_object)
+                
+        assert len(self.spawn_pos_list) > 0
           #elevation layer will be added as space
          #self.space.set_elevation_layer("data/elevation.asc.gz", crs="epsg:4326")
         # Create a graph of traversable routes, used by agents for pathing
@@ -187,6 +206,7 @@ class FloodEvacuation(Model):
                 pos = self.grid.find_empty()
             else:  # Place human agents at specified spawn locations
                 n = len(self.spawn_pos_list)
+                print(n)
                 pos = self.spawn_pos_list[random.randint(0,n-1)]
 
             if pos:
@@ -351,6 +371,8 @@ class FloodEvacuation(Model):
         """
 
         self.schedule.step()
+        time = self.start_time + self.schedule.steps * self.timestep_length
+        print(time)
 
         # If there's no fire yet, attempt to start one
         # if not self.fire_started:

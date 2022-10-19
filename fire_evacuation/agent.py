@@ -132,6 +132,22 @@ class Tile(FloorObject):
     def __init__(self,pos,elevation,model):
         super().__init__(pos,traversable=True,model=model)
         self.elevation = elevation
+        
+class Highway(FloorObject):
+    def __init__(self,pos,model):
+        super().__init__(pos,traversable=True,model=model)
+        
+class Path(FloorObject):
+    def __init__(self,pos,model):
+        super().__init__(pos,traversable=True,model=model)
+        
+class AgricultureField(FloorObject):
+    def __init__(self,pos,model):
+        super().__init__(pos,traversable=True,model=model)
+
+
+
+        
 
 
 
